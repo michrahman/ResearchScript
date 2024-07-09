@@ -1,0 +1,1349 @@
+---
+title: "Scratchbook"
+subtitle: "Mice Work"
+author: "Michael"
+date: "2024-02-12"
+output: html_document
+---
+
+```{r setup,results=FALSE}
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(readxl)
+library(ggsignif)
+library(openxlsx)
+library(ggpubr)
+library(RColorBrewer)
+library(lme4)
+
+setwd("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mice Work/")
+parameterdata <- read_excel("MiceParameters_Macro.xlsm")
+pupdata <- read_excel("MiceParameters_Macro.xlsm",sheet="Pups")
+
+colpalette <- c("#335c67","#8bb1f2","#ee6c4d","#9e2a2b","#219ebc","#aebebf","#bdb2ff")
+names(colpalette) <- c("SS","FF","CF","SC","CS","CC","FC")
+```
+
+```{r functions,results=FALSE}
+mean_weight <- function(df){
+  result <- df %>%
+    filter(Sex == "Female") %>%
+    group_by(MouseID, Weeks, Diet) %>%
+    summarise(mean_weight = mean(Weight,na.rm=TRUE),
+              sd_weight = sd(Weight, na.rm=TRUE))
+  return(result)
+}
+
+cage_number <- function(df){
+  df$Cage <- as.numeric(substr(df$MouseID, 1, 2))
+  return(df)
+}
+
+mean_weight_diet <- function(df){
+  result <- df %>%
+    filter(Sex == "Female") %>%
+    group_by(Weeks, Diet) %>%
+    summarise(mean_weight = mean(Weight, na.rm=TRUE),
+              sd_weight = sd(Weight, na.rm=TRUE))
+}
+
+mean_weight_gestational <- function(df){
+  result <- df %>%
+    filter(Sex == "Female") %>%
+    group_by(GestationalDays, Diet) %>%
+    summarise(mean_weight = mean(Weight, na.rm=TRUE),
+              sd_weight = sd(Weight, na.rm=TRUE))
+}
+
+pregnancy_weight_gain <- function(df){
+  result <- df%>%
+    filter(!is.na(Weight)&!is.na(GestationalDays))%>%
+    group_by(MouseID,Diet) %>%
+    summarise(WeightGain=max(Weight[GestationalDays==max(GestationalDays)])-first(Weight))%>%
+    group_by(MouseID, Diet)%>%
+    summarise(WeightGain=first(WeightGain))%>%
+    ungroup
+  return(result)
+}
+
+lineplot <- function(dietname,diet1,diet2,diet3,diet4){
+  pupdata %>%
+    filter(DietGroup==diet1|DietGroup==diet2|DietGroup==diet3|DietGroup==diet4)%>%
+    filter(!is.na(Sex))%>%
+    filter(Weeks!=0)%>%
+    group_by(DietGroup, Sex, Weeks, PregnancyFood) %>%
+    summarise(avg_weight = mean(Weight, na.rm=TRUE),sd_weight=sd(Weight))%>%
+    ggplot(aes(x=Weeks,y=avg_weight,group=DietGroup,color=DietGroup))+
+    geom_line()+
+    geom_point()+
+    geom_errorbar(aes(ymin=avg_weight-sd_weight,ymax=avg_weight+sd_weight),size=0.75,width=0.3)+
+    facet_wrap(~Sex, labeller=label_wrap_gen(multi_line=FALSE))+
+    theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+          axis.text = element_text(size=14), axis.title =  element_text(size=14))+
+    labs(title=paste(dietname,"Diet"),x="Weeks",y="Pup Weight (g)")+
+    scale_color_manual(values=colpalette)
+    #scale_x_continuous(breaks=seq(1,3,by=1))
+  }
+```
+
+```{r convert weight gain data to excel}
+hrdata <- parameterdata%>%
+  filter(Sex!="Male")%>%
+  filter(ReceivingBatch==1)%>%
+  dplyr::select(MouseID, Date, Weight, Diet)%>%
+  pivot_wider(names_from=Date,values_from=Weight)
+hrdata <- apply(hrdata,2,as.character)
+write.csv(hrdata,"Weight_HumanReadable.csv")
+```
+
+# Continutious Pup Data
+
+# Weight Over Time
+```{r continuous pup weight, echo=FALSE}
+pupdata %>%
+  #filter(DietGroup=="CC"|DietGroup=="SS"|DietGroup=="FF") %>%
+  filter(Weeks!=0&!is.na(Sex))%>%
+  group_by(DietGroup, Sex, Weeks, PregnancyFood) %>%
+  summarise(avg_weight = mean(Weight, na.rm=TRUE),sd_weight=sd(Weight))%>%
+  ggplot(aes(x=Weeks,y=avg_weight,group=DietGroup,color=DietGroup))+
+  geom_line()+
+  geom_point()+
+  geom_errorbar(aes(ymin=avg_weight-sd_weight,ymax=avg_weight+sd_weight),size=0.75,width=0.3)+
+  facet_wrap(~Sex, labeller=label_wrap_gen(multi_line=FALSE))+
+  theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), 
+        axis.text = element_text(size=14), axis.title =  element_text(size=14))+
+  labs(title="Pup Weight",subtitle="Continuous Diet",x="Weeks",y="Weight (g)")+
+  scale_x_continuous(breaks=seq(1,12,by=2))+
+  scale_color_manual(values=colpalette)
+  #ylim(1,8)+
+  #scale_x_continuous(breaks=seq(1,6,by=1))
+```
+
+## EchoMRI Comparison
+```{r echomri pup comparison, echo=FALSE}
+pupdata %>%
+  filter(!is.na(Fat)&Weeks==5)%>%
+  group_by(DietGroup)%>%
+  ggplot(aes(x=DietGroup,y=Weight,fill=DietGroup))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), 
+        panel.background = element_blank(), axis.text = element_text(size=9), 
+        axis.title = element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=colpalette)
+
+pupdata%>%
+  filter(Sex=="Female")%>%
+  filter(!is.na(Fat))%>%
+  filter(Weeks==5)%>%
+  select(PupID,DietGroup,Sex,Weight,Fat,Lean,FatPercent,TotalWater,Sex)%>%
+  gather(key="Variable",value="Value",Fat:TotalWater)%>%
+  ggplot(aes(x=DietGroup,y=Value,fill=DietGroup))+
+  geom_boxplot()+
+  facet_wrap(~Variable,scales="free")+
+  theme(axis.line = element_line(colour = "black"), 
+        panel.background = element_blank(), axis.text = element_text(size=9), 
+        axis.title = element_text(size=18),
+        strip.text.x=element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=colpalette)+
+  geom_jitter(width=0.2)+
+  labs(title="EchoMRI Pups at Week 5",subtitle="Female Pups",x="Diet Group",y="Value")
+  # geom_signif(comparisons=list(c("CC", "CS"),c("CC", "FC"),c("CC","SC"),c("CS", "FC"),c("CS","SC"),
+  #                              c("FC","SC")),
+  #             tip_length = 0,
+  #             map_signif_level=TRUE)
+```
+# Pre-Pregnancy Data
+
+## Cage
+```{r pre-pregnancy weight, echo=FALSE}
+weight <- mean_weight(parameterdata)
+weight_cage <- cage_number(weight)
+
+ggplot(weight_cage, aes(x=Weeks,y=mean_weight,group=MouseID,color=Diet)) + 
+  geom_line() +
+  facet_wrap(~Cage) +
+  theme(axis.line = element_line(colour = "black"), 
+        panel.background = element_blank(), axis.text = element_text(size=9), 
+        axis.title = element_text(size=14))+
+  scale_colour_manual(values=colpalette)+
+  xlim(2,6)+
+  labs(title="Pre-Pregnancy Weights",x="Weeks on Diet",y="Body Weight (g)")
+```
+
+## Comparing Diets
+```{r mean weight data}
+mean_weight_data <- mean_weight_diet(parameterdata)
+ggplot(mean_weight_data,aes(y=mean_weight,x=Weeks,color=Diet))+
+  geom_line()+
+  geom_errorbar(aes(ymin=mean_weight-sd_weight,ymax=mean_weight+sd_weight),width=0.2)+
+  theme(axis.line = element_line(colour = "black"), 
+        panel.background = element_blank(), axis.text = element_text(size=9), 
+        axis.title = element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  xlim(0,6)+
+  ylim(16,22)+
+  labs(title="Pre-Pregnancy Weights",x="Weeks on Diet",y="Body Weight (g)")
+```
+
+# Pregnancy
+
+## Weight Gain with Diet
+```{r weight gain diet}
+pregnancy_weightgain <- pregnancy_weight_gain(parameterdata)
+ggplot(pregnancy_weightgain, aes(x=Diet,y=WeightGain,fill=Diet))+
+  geom_boxplot()+
+  #ylim(10,15)+
+  theme(axis.line = element_line(colour = "black"), 
+        panel.background = element_blank(), axis.text = element_text(size=9), 
+        axis.title = element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=colpalette)+
+  geom_jitter(width=0.2)+
+  labs(title="Pregnancy Weight Gain",x="Diet",y="Weight Gain (g)")
+```
+## EchoMRI Data
+```{r echomri mother}
+parameterdata%>%
+  filter(!is.na(Fat))%>%
+  select(MouseID,Diet,Sex,Weight,Weeks,Fat,Lean,FatPercent,LeanMass)%>%
+  gather(key="Variable",value="Value",Fat:LeanMass)%>%
+  ggplot(aes(x=Diet,y=Value,fill=Diet))+
+  geom_boxplot()+
+  facet_wrap(~Variable,scales="free")+
+  theme(axis.line = element_line(colour = "black"), 
+        panel.background = element_blank(), axis.text = element_text(size=9), 
+        axis.title = element_text(size=18),
+        strip.text.x=element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=colpalette)+
+  geom_jitter(width=0.2)+
+  labs(title="EchoMRI Comparison",x="Diet Group",y="Value")+
+  # geom_signif(comparisons=list(c("Chow", "Fructose"),c("Chow", "Sucrose"),c("Fructose","Sucrose")),
+  #            #y_position = c(1.4,1.5,1.6,1.7,1.8,1.9),
+  #            tip_length = 0,
+  #            map_signif_level=TRUE)
+```
+# Pup Weights
+
+## Facet by Sex and Diet (Ignore?)
+
+```{r pup sex diet weight facet}
+average_pup_weight <- pupdata %>%
+  filter(!is.na(DietGroup) & Weeks!=0 & !is.na(Sex)) %>%
+  group_by(DietGroup, Sex, Weeks, PregnancyFood) %>%
+  summarise(avg_weight = mean(Weight, na.rm=TRUE),sd_weight=sd(Weight))
+
+ggplot(average_pup_weight, 
+       aes(x=Weeks,y=avg_weight,group=DietGroup,color=DietGroup))+
+  geom_line(size=1)+
+  geom_point(size=2)+
+  geom_errorbar(aes(ymin=avg_weight-sd_weight,ymax=avg_weight+sd_weight),size=0.75,width=0.3)+
+  facet_wrap(Sex~PregnancyFood, labeller=label_wrap_gen(multi_line=FALSE))+
+  theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), 
+        axis.text = element_text(size=14), axis.title =  element_text(size=14)) +
+  labs(title="Pup Weight",x="Weeks",y="Weight (g)")+
+  scale_color_manual(values=colpalette)+
+  #ylim(1,8)
+  scale_x_continuous(breaks=seq(1,12,by=2))
+```
+
+## Comparing Across Diet
+```{r pup sex weight,echo=FALSE}
+birth_weight <- pupdata %>%
+  filter(Weeks == 0) %>%
+  filter(!is.na(DietGroup)) %>%
+  group_by(DietGroup, Sex)
+
+ggplot(birth_weight,aes(x=DietGroup,y=Weight,fill=DietGroup))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+        axis.text = element_text(size=14), axis.title =  element_text(size=14)) +
+  scale_color_manual(values=colpalette)+
+  labs(title="No Differences in Weight Across Dietary Group",x="Diet Group",y="Weight (g)")+
+  # geom_signif(comparisons=list(c("CC", "CS"),c("CC", "FC"),c("CC","SC"),c("CS", "FC"),c("CS","SC"),
+  #                              c("FC","SC")),
+  #             y_position = c(1.4,1.5,1.6,1.7,1.8,1.9),
+  #             tip_length = 0,
+  #             map_signif_level=TRUE)+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))
+```
+## Sex Facet Across Diet Groups
+
+```{r sex diet facet weight,echo=FALSE}
+birth_weight <- pupdata %>%
+  filter(Weeks == 0) %>%
+  filter(!is.na(DietGroup)) %>%
+  filter(!is.na(Sex))%>%
+  group_by(DietGroup, Sex)
+
+ggplot(birth_weight,aes(x=DietGroup,y=Weight,fill=DietGroup))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+        axis.text = element_text(size=14), axis.title =  element_text(size=14)) +
+  scale_color_manual(values=colpalette)+
+  labs(title="Birthweight by Diet Group",subtitle="No Differences in Birth Weight Across Dietary Group",x="Diet Group",y="Weight (g)")+
+  # geom_signif(comparisons=list(c("CC", "CS"),c("CC", "FC"),c("CC","SC"),c("CS", "FC"),c("CS","SC"),
+  #                              c("FC","SC")),
+  #             y_position = c(1.4,1.5,1.6,1.7,1.8,1.9),
+  #             tip_length = 0,
+  #             map_signif_level=TRUE)+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  facet_wrap(~Sex)
+```
+
+## Sex Facet with Diet Group Changes over Weeks
+```{r sex facet over weeks}
+contdiet_pups <- lineplot("Continuous","CC","SS","FF","")
+sucdiet_pups <- lineplot("Sucrose","CC","SS","SC","CS")
+frucdiet_pups <- lineplot("Fructose","CC","FF","FC","CF")
+ggarrange(contdiet_pups,sucdiet_pups,frucdiet_pups)
+```
+
+## Week 5 Weights
+```{r week 5 weights, echo=FALSE}
+weight_week5 <- pupdata %>%
+  filter(Weeks == 5) %>%
+  group_by(DietGroup) %>%
+  select(Sex, Weight)
+
+ggplot(weight_week5, aes(x=DietGroup,y=Weight,fill=DietGroup,col=DietGroup))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  facet_wrap(~Sex)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+                         axis.text = element_text(size=14), 
+        axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  labs(title="Weights at Week 5",subtitle="No Significant Differences in Weight by Diet Group",x="Diet Group",y="Weight (g)")
+```
+
+
+
+# Blood Pressure (14/03/2024)
+```{r bp 14032024}
+bp_14032024 <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mice Work/14032024 BP/SummaryBP_14032024.xlsx",sheet="Sheet1")
+
+sbp1403 <- bp_14032024 %>%
+  group_by(Specimen.Name)%>%
+  summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=sd(Systolic)/mean(Systolic),cvdia=sd(Diastolic)/mean(Diastolic))
+
+ggplot(sbp1403,aes(x=Diet,y=avgdia,fill=Diet,col=Diet))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+                         axis.text = element_text(size=14), 
+        axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  ylab("Average Diastolic")
+
+```
+
+## Blood Pressure (21/03/2024)
+```{r bp 21032024}
+bp_21032024 <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mice Work/14032024 BP/SummaryBP_21032024.xlsx",sheet="Summary")
+sbp2103 <- bp_21032024 %>%
+  group_by(Specimen.Name)%>%
+  summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=sd(Systolic)/mean(Systolic),cvdia=sd(Diastolic)/mean(Diastolic)) %>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  mutate(Diet=case_when(
+    startsWith(Specimen.Name, "47")~"Sucrose",
+    startsWith(Specimen.Name, "48")|startsWith(Specimen.Name, "51")~"Fructose",
+    TRUE~"Chow"
+  ))
+sys_sbp2103 <- ggplot(sbp2103,aes(x=Diet,y=avgsys,fill=Diet))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+                         axis.text = element_text(size=14), 
+        axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=colpalette)+
+  ylab("Average Systolic")+
+  geom_signif(comparisons=list(c("Chow","Fructose"),c("Chow","Sucrose"),c("Fructose","Sucrose")),
+               tip_length = 0,
+               map_signif_level=TRUE)
+
+dia_sbp2103 <- ggplot(sbp2103,aes(x=Diet,y=avgdia,fill=Diet))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+                         axis.text = element_text(size=14), 
+        axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=colpalette)+
+  ylab("Average Diastolic")+
+  geom_signif(comparisons=list(c("Chow","Fructose"),c("Chow","Sucrose"),c("Fructose","Sucrose")),
+               tip_length = 0,
+               map_signif_level=TRUE)
+
+ggarrange(sys_sbp2103,dia_sbp2103)
+```
+
+## Blood Pressure (27/03/2024)
+```{r bp 27032024}
+bp_27032024 <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mice Work/14032024 BP/SummaryBP_27032024.xlsx",sheet="SummaryRenew")
+sbp2703 <- bp_27032024 %>%
+  group_by(Specimen.Name)%>%
+  summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=sd(Systolic)/mean(Systolic),cvdia=sd(Diastolic)/mean(Diastolic),nobs=n()) %>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  mutate(across(where(is.numeric),~round(.,3)))
+  #mutate(Diet=case_when(
+    #startsWith(Specimen.Name, "47")~"Sucrose",
+    #startsWith(Specimen.Name, "48")|startsWith(Specimen.Name, "51")~"Fructose",
+    #TRUE~"Chow"))
+
+bp_04042024 <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mice Work/14032024 BP/NewSummaryE042024.xlsx",sheet="CombinedR")
+
+sbp0404 <- bp_04042024 %>%
+  group_by(Specimen.Name)%>%
+  summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sdsys=sd(Systolic),sddia=sd(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=sd(Systolic)/mean(Systolic),cvdia=sd(Diastolic)/mean(Diastolic),nobs=n()) %>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  mutate(across(where(is.numeric),~round(.,3)))
+
+pupdata%>%
+  #group_by(PupID,Sex,DietGroup)%>%
+  mutate(across(c("PupID"),substr,4,nchar(PupID)))%>%
+  inner_join(sbp0404,by=c("PupID"="Specimen.Name"))%>%
+  #select(PupID,DietGroup,Sex,avgsys,avgdia,sdsys,sddia,sesys,sedia,cvsys,cvdia,nobs)%>%
+  distinct(PupID,.keep_all=TRUE)%>%
+  ggplot(aes(x=DietGroup,y=avgsys,fill=DietGroup,col=DietGroup))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+                         axis.text = element_text(size=14), 
+        axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  ylab("Average Systolic")+
+  facet_wrap(~Sex)+
+    geom_signif(comparisons=list(c("CC","CS"),c("CC","SC"),c("CC","FC"),c("SS","SC"),c("SS","CS"),
+                                 c("SC","CS"),c("FF","FC"),c("FF","CF"),c("FC","CF"),c("CC","SS")),
+               tip_length = 0,
+               map_signif_level=TRUE)
+
+pupdata%>%
+  #group_by(PupID,Sex,DietGroup)%>%
+  mutate(across(c("PupID"),substr,4,nchar(PupID)))%>%
+  inner_join(finalbp,by=c("PupID"="Specimen.Name"))%>%
+  #inner_join(finalbp%>%mutate(Specimen.Name=as.character(Specimen.Name)),by=c("PupID"="Specimen.Name"))%>%
+  #select(PupID,DietGroup,Sex,avgsys,avgdia,sdsys,sddia,sesys,sedia,cvsys,cvdia,nobs)%>%
+  distinct(PupID,.keep_all=TRUE)%>%
+  ggplot(aes(x=DietGroup,y=avgsys,fill=DietGroup,col=DietGroup))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+                         axis.text = element_text(size=14), 
+        axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  ylab("Average Systolic")+
+  facet_wrap(~Sex)+
+    geom_signif(comparisons=list(c("CC","CS"),c("CC","SC"),c("CC","FC"),c("SS","SC"),c("SS","CS"),
+                                 c("SC","CS"),c("FF","FC"),c("FF","CF"),c("FC","CF"),c("CC","SS")),
+               tip_length = 0,
+               map_signif_level=TRUE)
+
+ggplot(sbp0404,aes(x=Specimen.Name, y=avgsys))+
+  geom_boxplot(aes(lower=avgsys-sdsys,upper=avgsys+sdsys,middle=avgsys,ymin=avgsys-3*sdsys,ymax=avgsys+3*sdsys),stat="identity")+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+                         axis.text = element_text(size=14), 
+        axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=colpalette)+
+  ylab("Average Diastolic")+
+  geom_signif(comparisons=list(c("Chow","Fructose"),c("Chow","Sucrose"),c("Fructose","Sucrose")),
+               tip_length = 0,
+               map_signif_level=TRUE)
+
+finalbp <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mice Work/14032024 BP/NewSummaryE042024.xlsx",sheet="FinalCombined")
+
+sbpfinal <- finalbp %>%
+  group_by(Specimen.Name)%>%
+  summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sdsys=sd(Systolic),sddia=sd(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=sd(Systolic)/mean(Systolic),cvdia=sd(Diastolic)/mean(Diastolic),nobs=n()) %>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  mutate(across(where(is.numeric),~round(.,3)))
+
+bpfinalcombined <- pupdata%>%
+  mutate(across(c("PupID"),substr,4,nchar(PupID)))%>%
+  inner_join(sbpfinal,by=c("PupID"="Specimen.Name"))%>%
+  distinct(PupID,.keep_all=TRUE)
+
+sysplot <- ggplot(bpfinalcombined,aes(x=DietGroup,y=avgsys,fill=DietGroup,col=DietGroup))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+                         axis.text = element_text(size=14), 
+        axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  ylab("Average Systolic")+
+  facet_wrap(~Sex)+
+    geom_signif(comparisons=list(c("CC","CS"),c("CC","SC"),c("CC","FC"),c("SS","SC"),c("SS","CS"),
+                                 c("SC","CS"),c("FF","FC"),c("FF","CF"),c("FC","CF"),c("CC","SS")),
+               tip_length = 0,
+               map_signif_level=TRUE)
+
+diaplot <- ggplot(bpfinalcombined,aes(x=DietGroup,y=avgdia,fill=DietGroup,col=DietGroup))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), 
+                         axis.text = element_text(size=14), 
+        axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  ylab("Average Diastolic")+
+  geom_signif(comparisons=list(c("Chow","Fructose"),c("Chow","Sucrose"),c("Fructose","Sucrose")),
+               tip_length = 0,
+               map_signif_level=TRUE)+
+  facet_wrap(~Sex)
+```
+# Blood Pressure (28/04/2024)
+
+```{r bp 28042024}
+bp_28042024 <- read.csv("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mice Work/BloodPressure/Dump/28042024/combinedfiltered.csv")
+
+sbp28042024 <- bp_28042024 %>%
+  group_by(Specimen.Name)%>%
+  summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sdsys=sd(Systolic),sddia=sd(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=sd(Systolic)/mean(Systolic),cvdia=sd(Diastolic)/mean(Diastolic),nobs=n()) %>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  mutate(across(where(is.numeric),~round(.,3)))
+```
+
+# Blood Pressure (09/05/2024)
+
+```{r bp 28042024}
+bp_09052024 <- read.csv("~/Downloads/09052024/combined_filtered.csv")
+
+sbp09052024 <- bp_09052024 %>%
+  group_by(Specimen.Name)%>%
+  summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sdsys=sd(Systolic),sddia=sd(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=sd(Systolic)/mean(Systolic),cvdia=sd(Diastolic)/mean(Diastolic),nobs=n()) %>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  mutate(across(where(is.numeric),~round(.,3)))
+```
+
+# Blood Pressure (Emma/Hannah)
+
+```{r bp 28042024}
+emmahannah_bp <- read.csv("~/Downloads/emmahannah_bp/combined_filterednew.csv")
+
+emmahannah_bptable <- emmahannah_bp %>%
+  group_by(Specimen.Name)%>%
+  summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sdsys=sd(Systolic),sddia=sd(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=sd(Systolic)/mean(Systolic),cvdia=sd(Diastolic)/mean(Diastolic),nobs=n()) %>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  mutate(across(where(is.numeric),~round(.,3)))
+```
+
+# Blood Pressure (Week 12 Pups)
+``` {r bp week 12 pups}
+week12pups <- read.csv("~/Downloads/week12pups/merge.csv")
+
+week12pupsfiltered <- week12pups %>%
+  group_by(Specimen.Name)%>%
+  dplyr::summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sdsys=sd(Systolic),sddia=sd(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=sd(Systolic)/mean(Systolic),cvdia=sd(Diastolic)/mean(Diastolic),nobs=n()) %>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  mutate(across(where(is.numeric),~round(.,3)))
+```
+# Blood Pressure (Week 6 Pups)
+``` {r bp week 6 pups}
+tempdir <- "~/Downloads/Dump"
+tempfilelist <- list.files(tempdir,full.names=TRUE,pattern="*.csv")
+filewithheader <- read_csv(tempfilelist[1],col_types=cols())
+headers <- names(filewithheader)
+filewithnoheader <- function(file,headers){
+  read_csv(file,col_names=FALSE,skip=1, col_types=cols())%>%
+    set_names(headers)
+}
+week6pups <- tempfilelist%>%
+  map_dfr(~filewithnoheader(.x,headers))
+
+pupsdiet <- pupdata%>%
+  select(PupID,DietGroup,Sex)%>%
+  mutate(PupID=substr(PupID,4,nchar(PupID)))
+
+week6pupsfiltered <- week6pups %>%
+  filter(Accepted==TRUE)%>%
+  filter(Systolic<=130)%>%
+  filter(Diastolic>=70)%>%
+  rename_with(~"Specimen.Name",starts_with("Specimen Name"))%>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  inner_join(pupsdiet,by=c("Specimen.Name"="PupID"))%>%
+  group_by(Specimen.Name,DietGroup,Sex)%>%
+  filter(!is.na(Sex))%>%
+  dplyr::summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sdsys=sd(Systolic),sddia=sd(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=(sd(Systolic)/mean(Systolic))*100,cvdia=(sd(Diastolic)/mean(Diastolic))*100,nobs=n()) %>%
+  mutate(across(where(is.numeric),~round(.,3)))
+
+week6summary_sys <- week6pupsfiltered %>%
+  group_by(DietGroup,Sex)%>%
+  summarise(avgsys=mean(avgsys))
+
+ggplot(week6pupsfiltered,aes(x=DietGroup,y=avgdia,fill=DietGroup,col=DietGroup))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), axis.text = element_text(size=14), axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  ylab("Average Diastolic")+
+  facet_wrap(~Sex)+
+  geom_signif(comparisons=list(c("CC","CS"),c("CC","SC"),c("CC","FC"),c("SS","SC"),c("SS","CS"),c("SC","CS"),c("FF","FC"),c("FF","CF"),c("FC","CF"),c("CC","SS")),
+               tip_length = 0,
+               map_signif_level=TRUE)
+```
+
+# Blood Pressure (Week 12 Pups)
+``` {r bp week 12 pups}
+tempdir <- "~/Downloads/Dump2"
+tempfilelist <- list.files(tempdir,full.names=TRUE,pattern="*.csv")
+filewithheader <- read_csv(tempfilelist[1],col_types=cols())
+headers <- names(filewithheader)
+filewithnoheader <- function(file,headers){
+  read_csv(file,col_names=FALSE,skip=1, col_types=cols())%>%
+    set_names(headers)
+}
+week12pups <- tempfilelist%>%
+  map_dfr(~filewithnoheader(.x,headers))
+
+pupsdiet <- pupdata%>%
+  dplyr::select(PupID,DietGroup,Sex)%>%
+  mutate(PupID=substr(PupID,4,nchar(PupID)))
+
+week12pupsfiltered <- week12pups %>%
+  filter(Accepted==TRUE)%>%
+  filter(Systolic<=130)%>%
+  filter(Diastolic>=70)%>%
+  rename_with(~"Specimen.Name",starts_with("Specimen Name"))%>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  inner_join(pupsdiet,by=c("Specimen.Name"="PupID"))%>%
+  group_by(Specimen.Name,DietGroup,Sex)%>%
+  filter(!is.na(Sex))%>%
+  dplyr::summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sdsys=sd(Systolic),sddia=sd(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=(sd(Systolic)/mean(Systolic))*100,cvdia=(sd(Diastolic)/mean(Diastolic))*100,nobs=n()) %>%
+  mutate(across(where(is.numeric),~round(.,3)))
+
+week12summary_sys <- week12pupsfiltered %>%
+  group_by(DietGroup,Sex)%>%
+  summarise(avgsys=mean(avgsys))
+
+
+
+ggplot(week6pupsfiltered,aes(x=DietGroup,y=avgdia,fill=DietGroup,col=DietGroup))+
+  geom_boxplot()+
+  geom_jitter(width=0.2)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), axis.text = element_text(size=14), axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  ylab("Average Diastolic")+
+  facet_wrap(~Sex)+
+  geom_signif(comparisons=list(c("CC","CS"),c("CC","SC"),c("CC","FC"),c("SS","SC"),c("SS","CS"),c("SC","CS"),c("FF","FC"),c("FF","CF"),c("FC","CF"),c("CC","SS")),
+               tip_length = 0,
+               map_signif_level=TRUE)
+
+```
+
+# Blood Pressure Penalty System (Week 12)
+```{r bp penalty}
+#lets take only two mice to start
+tempdir <- "~/Downloads/Dump2"
+tempfilelist <- list.files(tempdir,full.names=TRUE,pattern="*.csv")
+filewithheader <- read_csv(tempfilelist[1],col_types=cols())
+headers <- names(filewithheader)
+filewithnoheader <- function(file,headers){
+  read_csv(file,col_names=FALSE,skip=1, col_types=cols())%>%
+    set_names(headers)
+}
+week12pups <- tempfilelist%>%
+  map_dfr(~filewithnoheader(.x,headers))
+
+pupsdiet <- pupdata%>%
+  dplyr::select(PupID,DietGroup,Sex)%>%
+  mutate(PupID=substr(PupID,4,nchar(PupID)))%>%
+  distinct(PupID,.keep_all=TRUE)
+
+week12_1 <- week12pups%>%
+  rename_with(~"Specimen.Name",starts_with("Specimen Name"))%>%
+  mutate(Specimen.Name=as.character(Specimen.Name))%>%
+  left_join(pupsdiet,by=c("Specimen.Name"="PupID"))
+
+penalty <- function(data){
+  filtered <- data%>%
+    filter(Systolic<=130)%>%
+    filter(Diastolic>=70)%>%
+    filter(Accepted==TRUE)%>%
+    filter(Rate!=0)
+  avgsystolic <- mean(filtered$Systolic)
+  avgdiastolic <- mean(filtered$Diastolic)
+  calcpenalty <- function(systolic,diastolic){
+    abs(systolic-avgsystolic)+abs(diastolic-avgdiastolic)
+  }
+  filtered <- filtered%>%
+    mutate(Penalty=calcpenalty(Systolic,Diastolic))
+  top5penalty <- function(data){
+    data%>%
+      arrange(Penalty)%>%
+      head(6)
+  }
+  top5reading <- filtered%>%
+    group_by(Specimen.Name)%>%
+    do(top5penalty(.))%>%
+    ungroup()%>%
+    group_by(Specimen.Name)
+  return(top5reading)
+}
+
+week12_penalty <- penalty(week12_1)%>%
+  dplyr::summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sdsys=sd(Systolic),sddia=sd(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=(sd(Systolic)/mean(Systolic))*100,cvdia=(sd(Diastolic)/mean(Diastolic))*100,nobs=n())%>%
+  left_join(pupsdiet,by=c("Specimen.Name"="PupID"))
+
+ggplot(week12_penalty,aes(x=DietGroup,y=avgdia,fill=DietGroup,col=DietGroup))+
+  geom_boxplot()+
+  geom_point()+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), axis.text = element_text(size=14), axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  ylab("Average Systolic")+
+  facet_wrap(~Sex)+
+  geom_signif(comparisons=list(c("CC","CS"),c("CC","SC"),c("CC","FC"),c("SS","SC"),c("SS","CS"),c("SC","CS"),c("FF","FC"),c("FF","CF"),c("FC","CF"),c("CC","SS"),c("CC","CF")),
+              test="t.test",
+               tip_length = 0,
+              map_signif_level=c("***"=0.001,"**"=0.01, "*"=0.05, " "=2))
+               #map_signif_level=TRUE)
+  
+#create with these group plots
+# G1 – CC, FC, CF, FF
+# G2 – CC, SC, CS, SS
+# G3 – CC, FF, SS
+# G4 – CC, CF, CS
+# G5 – CC, FC, SC
+
+par(mfrow=c(2,3))
+
+boxplot_dietgroup <- function(df,dietgroups){
+  p <- df%>%
+    filter(DietGroup%in%dietgroups)%>%
+    ggplot(aes(x=DietGroup,y=avgdia,fill=DietGroup,col=DietGroup))+
+    geom_boxplot()+
+    geom_point()+
+    ylim(75,95)+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), axis.text = element_text(size=14), axis.title =  element_text(size=14),axis.title.x=element_blank(),axis.text.x=element_blank(),axis.ticks.x=element_blank())+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  ylab("Average Diastolic")+
+  facet_wrap(~Sex)
+  return(p)
+}
+
+dietcomparelist <- list(c("CC","FC","CF","FF"),c("CC","SC","CS","SS"),c("CC","FF","SS"),c("CC","CF","CS"),c("CC","FC","SC"))
+
+plotlist <- list()
+for(groups in dietcomparelist){
+  p <- print(boxplot_dietgroup(week12_penalty,groups))
+  print(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+
+do.call("grid.arrange",c(plotlist,list(ncol=3)))
+
+
+```
+
+
+# Pups Census
+```{r pups census}
+pupscensus <- read_xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mice Work/MiceSchedule.xlsx",sheet="PupsAudit",range=cell_cols("A:F"))
+
+#non stacked (discard)
+censusplot <- pupscensus%>%
+  dplyr::select(DietGroup,MalePups,FemalePups,Total)%>%
+  group_by(DietGroup)%>%
+  ggplot(aes(x=DietGroup,y=Total,fill=DietGroup))+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), axis.text = element_text(size=14), axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  labs(title = "Total Pups", x = "Diet Group", y = "Pup Count")+
+  geom_bar(stat="identity")
+
+#reshape to long format, stacked by sex
+pupscensus_long <- pupscensus%>%
+  pivot_longer(cols=c(MalePups,FemalePups),names_to="Sex",values_to="Count")%>%
+  mutate(Sex=ifelse(Sex=="MalePups","Male","Female"))
+ggplot(pupscensus_long,aes(x=DietGroup,y=Count,fill=Sex))+
+  geom_bar(stat="identity")+
+  theme_minimal()+
+  labs(title="Total Pups",x="Diet Group",y="Pup Count")+
+  scale_fill_manual(values=alpha(c(Female="#bc5090",Male="#003f5c"),0.3))+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), axis.text = element_text(size=14), axis.title =  element_text(size=14),panel.border = element_blank(), panel.grid.major = element_blank(),panel.grid.minor = element_blank())
+         
+
+
+summary_data <- pupscensus %>%
+  dplyr::select(DietGroup, Total) %>%
+  group_by(DietGroup) %>%
+  count(DietGroup)
+
+# Plot the summarized data
+censusplot <- ggplot(summary_data, aes(x = DietGroup, y = n, fill = DietGroup)) +
+  geom_bar(stat = "identity") +
+  geom_hline(yintercept=8,col="red")+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), axis.text = element_text(size=14), axis.title =  element_text(size=14))+
+  scale_color_manual(values=colpalette)+
+  scale_fill_manual(values=alpha(colpalette,0.3))+
+  labs(title = "Count by Diet Group", x = "Diet Group", y = "Mother Count")
+  
+```
+# Linear Mixed Effects Model
+``` {r lme}
+#testing the assumptions
+basiclm <- lm(FatPercent~Weight,data=pupdata)
+summary(basiclm)
+ggplot(pupdata,aes(x=Weight,y=FatPercent))+
+  geom_point()+
+  geom_smooth(method="lm")
+plot(basiclm)
+boxplot(FatPercent~DietGroup,data=pupdata)
+ggplot(pupdata,aes(FatPercent,Weight))+
+  geom_point()+
+  facet_wrap(~DietGroup)
+dietlm <- lm(data=pupdata,FatPercent~Weight+DietGroup)
+pupdata$MotherID <- as.factor(pupdata$MotherID)
+lm.lmer <- lmer(FatPercent~Weight*Sex*MotherID+(1|DietGroup),data=pupdata)
+
+# pupdata following the vignette
+pupdata$nsex <- as.numeric(pupdata$Sex=="Male")
+pupdata$nsexage <- with(pupdata,nsex*Weeks)
+lmer(Weight-Weeks+(Weeks|MotherID)+(0+nsex|MotherID)+(0+nsexage|MotherID),data=pupdata) #probably wrong
+lm.lmer <- lmer(Weight~DietGroup+(Weeks|DietGroup)+(0+nsex|DietGroup)+(0+nsexage|DietGroup),data=pupdata) #probably wrong
+sjPlot::plot_model(lm.lmer)
+
+lm.lmer <- lmer(Weight~(1+MotherID*Weeks|DietGroup)+(Weeks*MotherID),data=pupdata) #taking forever
+lm.lmer <- lmer(Weight~DietGroup+Sex+(1|MotherID),data=pupdata) #possibly works, better model is in the alternative lm model
+
+plot_model(lm.lmer)
+plot_model(lm.lmer,type="pred",terms=c("DietGroup","Sex")) #predicted value
+plot_model(lm.lmer,type="diag") #used ggplot down below for fitted values vs residuals
+
+#lmm cannot be used due to non normality of residuals, attempt using glm instead, improper use of gamma distance
+glm.lmer <- glmer(Weight~DietGroup+Sex+(1|MotherID),data=pupdata,family=Gamma())
+plot_model(glm.lmer,type="diag")
+
+#alternative lm model
+newlm.lmer <- lmer(Weight~Weeks+Sex+DietGroup+Weeks*Sex+Weeks*DietGroup+(1|MotherID),data=pupdata)
+plot_model(newlm.lmer,type="diag")
+plot_model(newlm.lmer)
+plot_model(newlm.lmer,type="pred",terms=c("DietGroup","Sex"))
+
+newlm.predict <- predict(newlm.lmer,na.action=na.exclude)
+
+newlm.df <- data.frame(Observed=pupdata$Weight,Predicted=newlm.predict)
+ggplot(newlm.df,aes(x=Observed,y=Predicted))+
+  geom_point()+
+  geom_abline(intercept=0,slope=1)+
+  stat_cor()
+anova(newlm.lmer)
+
+#attempt analysing sex*dietgroup
+newlm.lmer_update <- lmer(Weight~Weeks+Sex+DietGroup+Weeks*Sex+Weeks*DietGroup+Sex*DietGroup+(1|MotherID),data=pupdata)
+plot_model(newlm.lmer_update,type="diag")
+plot_model(newlm.lmer_update)
+plot_model(newlm.lmer_update,type="pred",terms=c("DietGroup","Sex"))
+
+newlm_update.predict <- predict(newlm.lmer_update,na.action=na.exclude)
+
+
+newlm.df_update <- data.frame(Observed=pupdata$Weight,Predicted=newlm_update.predict)
+ggplot(newlm.df_update,aes(x=Observed,y=Predicted))+
+  geom_point()+
+  geom_abline(intercept=0,slope=1)+
+  stat_cor()
+anova(newlm.lmer_update)
+
+#dglm?
+newlm.dglm <- dglm(Weight~Weeks+Sex+DietGroup+Weeks*Sex+Weeks*DietGroup+Sex*DietGroup+(1|MotherID),data=pupdata)
+```
+
+```{r todolist}
+#barchart of homa-ir with diet group
+pb6palette<- c("#696969", "#8B008B", "#A9A9A9", "#DA70D6")
+comparison <- list(c("Chow","Sucrose"),c("Chow","CS"),c("Chow","SC"),c("Sucrose","CS"),c("Sucrose","SC"),c("SC","CS"))
+#metab <- unique(pivot_liver$Metabolite)
+metab <- "Cholic.acid"
+pdf("combinedlivermetaboliteloop1_filtered.pdf")
+meanabundance <- NA
+sdabundance <- NA
+for(metabolite in metab){
+  metabdf <- pivot_liver %>% 
+    filter(Metabolite == metabolite) %>%
+    mutate(meanabundance=mean(Abundance,na.rm=TRUE),
+              sdabundance=sd(Abundance,na.rm=TRUE))
+           #colabundance=as.numeric(between(Abundance,
+                   #meanabundance-2*sdabundance,
+                   #meanabundance+2*sdabundance)))
+  #group2 <- factor(metabdf$Diet, levels = c("Chow", "Sucrose", "CS", "SC"))
+  plot <- ggplot(metabdf,aes(x=Diet, y=Abundance, colour=Diet, fill=Diet)) +
+    #ylim(((meanabundance-2*sdabundance),(meanabundance-2*sdabundance)))+
+    xlab("Diet") +
+    coord_cartesian(ylim=c((meanabundance-2*sdabundance),(meanabundance+2*sdabundance)))+
+    stat_compare_means(comparisons=comparison,na.rm=TRUE) +
+    ylab("Abundance") +
+    labs(title=metabolite)+
+    geom_boxplot(outlier.shape = NA)+
+    geom_point(position = position_jitter(0.1))+
+    scale_alpha_continuous(range=c(0,1))+
+    theme(axis.line = element_line( colour = "black"), 
+          panel.background = element_blank(), axis.text = element_text(size=9), 
+          axis.title =  element_text(size=14)) +
+    scale_color_manual(values = c(pb6palette[1:2], pb6palette[3:4]))+
+    scale_fill_manual(values = alpha(c(pb6palette[1:2], pb6palette[4:3]), 0.3))+
+    #guides(color=none)+
+    #scale_color_manual(values=pb6palette)+
+    #scale_fill_manual(values = alpha((pb6palette), 0.3))+
+    theme(
+      strip.text = element_text(size = rel(1.5)),
+      strip.background = element_rect(color="white", fill="white"))+
+    facet_wrap(~Sex)
+  print(plot)
+
+```
+
+
+# Food Intake
+```{r foodintake}
+foodintake <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mice Work/FoodIntake.xlsx",sheet="Data")
+
+colnames(foodintake)[4:ncol(foodintake)] <- as.Date(colnames(foodintake)[4:ncol(foodintake)],format="%d/%m/%Y")
+
+foodconsumed <- list()
+
+for (i in 4:(ncol(foodintake) - 1)){
+  if (as.numeric(difftime(colnames(foodintake)[i + 1], colnames(foodintake)[i], units = "days"))==1) {
+  foodconsumed[[paste0(colnames(foodintake)[i], "_", colnames(foodintake)[i + 1])]] <- foodintake[, i + 1] - foodintake[, i]
+  }
+}
+foodconsumed <- as.data.frame(foodconsumed)
+
+```
+
+# For Presentation (Week 6 Complete)
+
+## Header Function
+```{r slf header,echo=FALSE}
+#not working?
+boxplotdiet <- function(df,variable){
+  DietPalette <- c("#ADA9A4", "#F4A582","#CA6A6E", "#67001F", "#DA70D6","#A6CEE3","#1F78B4")
+  names(DietPalette) <- c("AIN-93G - AIN-93G", "AIN-93G - Sucrose", "Sucrose - AIN-93G", "Sucrose - Sucrose", "AIN-93G - Fructose", "Fructose - AIN-93G", "Fructose - Fructose")
+  ggplot(df,aes(x=Diet,y=!!sym(variable),fill=Diet,col=Diet))+
+  geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+  geom_point(position=position_jitter(0.1))+
+  theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14))+
+  scale_color_manual(values=DietPalette)+
+  scale_fill_manual(values=alpha(DietPalette,0.3))+
+  facet_wrap(~Sex)+
+  scale_x_discrete(labels = function(x) 
+   stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))+
+  theme(
+    strip.text = element_text(size = rel(1.5)),
+    strip.background = element_rect(color="white", fill="white"))
+}
+
+boxplotdiet(slfpupweights,"6")
+
+boxplot_dietgroup <- function(df,dietgroups){
+  p <- df%>%
+    filter(Diet%in%dietgroups)%>%
+    filter(!is.na(Diet))%>%
+    ggplot(aes(x=Diet,y=avgdia,fill=Diet,col=Diet))+
+    geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+    geom_point(position=position_jitter(0.1))+
+    theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14))+
+    scale_color_manual(values=DietPalette)+
+    scale_fill_manual(values=alpha(DietPalette,0.3))+
+    ylab("Average Diastolic")+
+    facet_wrap(~Sex)+
+    scale_x_discrete(labels = function(x) 
+     stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))+
+      ylim(75,95)+
+    theme(
+      strip.text = element_text(size = rel(1.5)),
+      strip.background = element_rect(color="white", fill="white"))
+  return(p)
+}
+
+dietcomparelist <- list(c("AIN-93G - AIN-93G","Fructose - AIN-93G","AIN-93G - Fructose","Fructose - Fructose"),c("AIN-93G - AIN-93G","Sucrose - AIN-93G","AIN-93G - Sucrose","Sucrose - Sucrose"),c("AIN-93G - AIN93G","Fructose - Fructose","Sucrose - Sucrose"),c("AIN-93G - AIN93G","AIN-93G - Fructose","AIN-93G - Sucrose"),c("AIN-93G - AIN93G","Fructose - AIN-93G","Sucrose - AIN-93G"))
+
+plotlist <- list()
+for(groups in dietcomparelist){
+  p <- print(boxplot_dietgroup(week6_penalty,groups))
+  print(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+
+
+```
+
+## Week 6 Weights (SLF Dataset)
+```{r week 6 weights, echo=FALSE}
+slfpupweights <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mouse data/Raw dam and pup data/pupdata2024_ALL.xlsx",sheet="Weights",check.names=FALSE)%>%
+  filter(!is.na(Diet))
+
+
+slfpupweights%>%
+  ggplot(aes(x=Diet,y=`6`,fill=Diet,col=Diet))+
+  geom_boxplot(lwd = 0.75, outlier.shape = NA)+
+  facet_wrap(~Sex)+
+  geom_point(position=position_jitter(0.1))+
+  scale_color_manual(values=DietPalette)+
+  scale_fill_manual(values=alpha(DietPalette,0.3))+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), axis.text = element_text(size=14), axis.title =  element_text(size=14))
+
+
+#final weight pdf (07/07/24)
+boxplot_dietgroup <- function(df,dietgroups,title){
+  p <- df%>%
+    filter(Diet%in%dietgroups)%>%
+    filter(!is.na(Diet))%>%
+    ggplot(aes(x=Diet,y=`6`,fill=Diet,col=Diet))+
+    geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+    ggtitle(title)+
+    geom_point(position=position_jitter(0.1))+
+    theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14),strip.text = element_text(size = rel(1.5)),
+      strip.background = element_rect(color="white", fill="white"))+
+    scale_color_manual(values=DietPalette)+
+    scale_fill_manual(values=alpha(DietPalette,0.3))+
+    ggtitle("Week 6 Weight")+
+    ylab("Weight (g)")+
+    facet_wrap(~Sex)+
+    scale_x_discrete(labels = function(x) 
+     stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))
+    #ylim(75,95)+
+    return(p)
+}
+
+dietcomparelist <- list(c("AIN-93G - AIN-93G","Fructose - AIN-93G","AIN-93G - Fructose","Fructose - Fructose"),c("AIN-93G - AIN-93G","Sucrose - AIN-93G","AIN-93G - Sucrose","Sucrose - Sucrose"),c("AIN-93G - AIN-93G","Fructose - Fructose","Sucrose - Sucrose"),c("AIN-93G - AIN-93G","AIN-93G - Fructose","AIN-93G - Sucrose"),c("AIN-93G - AIN-93G","Fructose - AIN-93G","Sucrose - AIN-93G"))
+
+plotlist <- list()
+pdf("Week6Weight.pdf")
+for(groups in dietcomparelist){
+  p <- print(boxplot_dietgroup(slfpupweights,groups))
+  plot(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+dev.off()
+
+#export pdf with title
+plotlist <- list()
+pdf("Week6Weight.pdf")
+for(i in seq_along(dietcomparelist)){
+  groups <- dietcomparelist[[i]]
+  title <- dietcomparetitle[[i]]
+  p <- boxplot_dietgroup(slfpupweights,groups,title)
+  plot(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+dev.off()
+```
+
+## Week 6 Blood Pressure
+```{r week 6 bp, echo=FALSE}
+library(tidyverse)
+#lets take only two mice to start
+tempdir <- "~/Downloads/Week6"
+tempfilelist <- list.files(tempdir,full.names=TRUE,pattern="*.csv")
+filewithheader <- read_csv(tempfilelist[1],col_types=cols())
+headers <- names(filewithheader)
+filewithnoheader <- function(file,headers){
+  read_csv(file,col_names=FALSE,skip=1, col_types=cols())%>%
+    set_names(headers)
+}
+
+pupsdiet <- slfpupweights%>%
+  dplyr::select(ID,Diet,Sex)%>%
+  mutate(ID=str_remove(ID,"MR"))
+
+week6pupsbp <- tempfilelist%>%
+  map_dfr(~filewithnoheader(.x,headers))%>%
+  rename_with(~"Specimen.Name",starts_with("Specimen Name"))%>%
+  mutate(Specimen.Name=as.character(Specimen.Name))
+
+penalty <- function(data){
+  filtered <- data%>%
+    filter(Systolic<=130)%>%
+    filter(Diastolic>=70)%>%
+    filter(Accepted==TRUE)%>%
+    filter(Rate!=0)
+  avgsystolic <- mean(filtered$Systolic)
+  avgdiastolic <- mean(filtered$Diastolic)
+  calcpenalty <- function(systolic,diastolic){
+    abs(systolic-avgsystolic)+abs(diastolic-avgdiastolic)
+  }
+  filtered <- filtered%>%
+    mutate(Penalty=calcpenalty(Systolic,Diastolic))
+  top5penalty <- function(data){
+    data%>%
+      arrange(Penalty)%>%
+      head(6)
+  }
+  top5reading <- filtered%>%
+    group_by(Specimen.Name)%>%
+    do(top5penalty(.))%>%
+    ungroup()%>%
+    group_by(Specimen.Name)
+  return(top5reading)
+}
+
+week6_penalty <- penalty(week6pupsbp)%>%
+  dplyr::summarise(avgsys=mean(Systolic),avgdia=mean(Diastolic),sdsys=sd(Systolic),sddia=sd(Diastolic),sesys=sd(Systolic)/sqrt(n()),sedia=sd(Diastolic)/sqrt(n()),cvsys=(sd(Systolic)/mean(Systolic))*100,cvdia=(sd(Diastolic)/mean(Diastolic))*100,nobs=n())%>%
+    filter(!nobs<=3)%>%
+  left_join(pupsdiet,by=c("Specimen.Name"="ID"))
+
+ggplot(week6_penalty,aes(x=Diet,y=avgsys,fill=Diet,col=Diet))+
+  geom_boxplot()+
+  geom_point()+
+  theme(axis.line = element_line(colour = "black"), panel.background = element_blank(), axis.text = element_text(size=14), axis.title =  element_text(size=14))+
+  scale_color_manual(values=DietPalette)+
+  scale_fill_manual(values=alpha(DietPalette,0.3))+
+  ylab("Average Systolic")+
+  facet_wrap(~Sex)+
+  # geom_signif(comparisons=list(c("CC","CS"),c("CC","SC"),c("CC","FC"),c("SS","SC"),c("SS","CS"),c("SC","CS"),c("FF","FC"),c("FF","CF"),c("FC","CF"),c("CC","SS"),c("CC","CF")),
+  #             test="t.test",
+  #              tip_length = 0,
+  #             map_signif_level=c("***"=0.001,"**"=0.01, "*"=0.05, " "=2))
+  #              #map_signif_level=TRUE)
+  
+#create with these group plots
+# G1 – CC, FC, CF, FF
+# G2 – CC, SC, CS, SS
+# G3 – CC, FF, SS
+# G4 – CC, CF, CS
+# G5 – CC, FC, SC
+
+par(mfrow=c(2,3))
+
+boxplot_dietgroup <- function(df,dietgroups,title){
+  p <- df%>%
+    filter(Diet%in%dietgroups)%>%
+    filter(!is.na(Diet))%>%
+    ggplot(aes(x=Diet,y=avgsys,fill=Diet,col=Diet))+
+    geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+    geom_point(position=position_jitter(0.1))+
+    ggtitle(title)+
+    theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14))+
+    scale_color_manual(values=DietPalette)+
+    scale_fill_manual(values=alpha(DietPalette,0.3))+
+    ylab("Average Systolic")+
+    facet_wrap(~Sex)+
+    scale_x_discrete(labels = function(x) 
+     stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))+
+      #ylim(75,95)+
+    theme(
+      strip.text = element_text(size = rel(1.5)),
+      strip.background = element_rect(color="white", fill="white"))
+  return(p)
+}
+
+dietcomparelist <- list(c("AIN-93G - AIN-93G","Fructose - AIN-93G","AIN-93G - Fructose","Fructose - Fructose"),c("AIN-93G - AIN-93G","Sucrose - AIN-93G","AIN-93G - Sucrose","Sucrose - Sucrose"),c("AIN-93G - AIN-93G","Fructose - Fructose","Sucrose - Sucrose"),c("AIN-93G - AIN-93G","AIN-93G - Fructose","AIN-93G - Sucrose"),c("AIN-93G - AIN-93G","Fructose - AIN-93G","Sucrose - AIN-93G"))
+
+#grid formation
+plotlist <- list()
+for(groups in dietcomparelist){
+  p <- print(boxplot_dietgroup(week6_penalty,groups))
+  print(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+
+do.call("grid.arrange",c(plotlist,list(ncol=3)))
+
+#export pdf
+plotlist <- list()
+pdf("Week6Diastolic.pdf")
+for(groups in dietcomparelist){
+  p <- print(boxplot_dietgroup(week6_penalty,groups))
+  plot(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+dev.off()
+
+#export pdf with title
+plotlist <- list()
+pdf("Week6Systolic.pdf")
+for(i in seq_along(dietcomparelist)){
+  groups <- dietcomparelist[[i]]
+  title <- dietcomparetitle[[i]]
+  p <- boxplot_dietgroup(week6_penalty,groups,title)
+  plot(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+dev.off()
+```
+## Week 6 Exercise
+```{r week 6 exercise, echo=FALSE}
+slfpupexercise <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mouse data/Raw dam and pup data/pupdata2024_ALL.xlsx",sheet="exercise6",check.names=FALSE)%>%
+  filter(!is.na(Diet))
+
+boxplot_dietgroup <- function(df,dietgroups,title){
+  p <- df%>%
+    filter(`Running.Distance.(m)`<220)%>%
+    filter(Diet%in%dietgroups)%>%
+    filter(!is.na(Diet))%>%
+    ggplot(aes(x=Diet,y=`Running.Distance.(m)`,fill=Diet,col=Diet))+
+    geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+    geom_point(position=position_jitter(0.1))+
+    theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14))+
+    scale_color_manual(values=DietPalette)+
+    scale_fill_manual(values=alpha(DietPalette,0.3))+
+    ylab("Running Distance (m)")+
+    ggtitle(title)+
+    facet_wrap(~Sex)+
+    scale_x_discrete(labels = function(x) 
+     stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))+
+      #ylim(0,10)+
+    theme(
+      strip.text = element_text(size = rel(1.5)),
+      strip.background = element_rect(color="white", fill="white"))
+  return(p)
+}
+
+
+#export pdf
+plotlist <- list()
+pdf("Week6Exercise.pdf")
+for(groups in dietcomparelist){
+  p <- print(boxplot_dietgroup(slfpupexercise,groups))
+  plot(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+dev.off()
+
+#export pdf with title
+plotlist <- list()
+pdf("Week6Exercise.pdf")
+for(i in seq_along(dietcomparelist)){
+  groups <- dietcomparelist[[i]]
+  title <- dietcomparetitle[[i]]
+  p <- boxplot_dietgroup(slfpupexercise,groups,title)
+  plot(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+dev.off()
+
+```
+
+## Week 6 Glucose (HOMA-IR)
+```{r week 6 glucose, echo=FALSE}
+slfpupglucose <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mouse data/Raw dam and pup data/pupdata2024_ALL.xlsx",sheet="glucose6",check.names=FALSE)%>%
+  filter(!is.na(Diet))
+
+
+ggplot(slfpupglucose,aes(x=Diet,y=`HOMA-IR`,fill=Diet,col=Diet))+
+  geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+  geom_point(position=position_jitter(0.1))+
+  ylim(0,7.5)+
+  theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14))+
+  scale_color_manual(values=DietPalette)+
+  scale_fill_manual(values=alpha(DietPalette,0.3))+
+  facet_wrap(~Sex)+
+  scale_x_discrete(labels = function(x) 
+   stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))+
+  theme(
+    strip.text = element_text(size = rel(1.5)),
+    strip.background = element_rect(color="white", fill="white"))
+
+#diet separation
+slfpupglucose <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mouse data/Raw dam and pup data/pupdata2024_ALL.xlsx",sheet="glucose6",check.names=FALSE)
+boxplot_dietgroup <- function(df,dietgroups,title){
+  p <- df%>%
+    filter(Diet%in%dietgroups)%>%
+    filter(!is.na(Diet))%>%
+    ggplot(aes(x=Diet,y=`HOMA-IR`,fill=Diet,col=Diet))+
+    geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+    ggtitle(title)+
+    geom_point(position=position_jitter(0.1))+
+    theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14))+
+    scale_color_manual(values=DietPalette)+
+    scale_fill_manual(values=alpha(DietPalette,0.3))+
+    ylab("HOMA-IR")+
+    facet_wrap(~Sex)+
+    scale_x_discrete(labels = function(x) 
+     stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))+
+      ylim(0,7)+
+    theme(
+      strip.text = element_text(size = rel(1.5)),
+      strip.background = element_rect(color="white", fill="white"))
+  return(p)
+}
+
+dietcomparelist <- list(c("AIN-93G - AIN-93G","Fructose - AIN-93G","AIN-93G - Fructose","Fructose - Fructose"),c("AIN-93G - AIN-93G","Sucrose - AIN-93G","AIN-93G - Sucrose","Sucrose - Sucrose"),c("AIN-93G - AIN-93G","Fructose - Fructose","Sucrose - Sucrose"),c("AIN-93G - AIN-93G","AIN-93G - Fructose","AIN-93G - Sucrose"),c("AIN-93G - AIN-93G","Fructose - AIN-93G","Sucrose - AIN-93G"))
+
+#grid formation
+plotlist <- list()
+for(groups in dietcomparelist){
+  p <- print(boxplot_dietgroup(slfpupglucose,groups))
+  print(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+
+do.call("grid.arrange",c(plotlist,list(ncol=3)))
+
+#export pdf with title
+dietcomparetitle <- c("AIN-93G v Fructose", "AIN-93G v Sucrose", "Lifelong Diet", "Postnatal Diet", "Prenatal Diet")
+plotlist <- list()
+pdf("Week6HOMA-IR.pdf")
+for(i in seq_along(dietcomparelist)){
+  groups <- dietcomparelist[[i]]
+  title <- dietcomparetitle[[i]]
+  p <- boxplot_dietgroup(slfpupglucose,groups,title)
+  plot(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+dev.off()
+
+```
+## Week 6 Fat Percentage
+```{r week 6 fat percentage, echo=FALSE}
+slfpupfatpercentage <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mouse data/Raw dam and pup data/pupdata2024_ALL.xlsx",sheet="bodycomp6",check.names=FALSE)%>%
+  filter(!is.na(Diet))
+
+dietcomparetitle <- c("AIN-93G v Fructose", "AIN-93G v Sucrose", "Lifelong Diet", "Postnatal Diet", "Prenatal Diet")
+dietcomparelist <- list(c("AIN-93G - AIN-93G","Fructose - AIN-93G","AIN-93G - Fructose","Fructose - Fructose"),c("AIN-93G - AIN-93G","Sucrose - AIN-93G","AIN-93G - Sucrose","Sucrose - Sucrose"),c("AIN-93G - AIN-93G","Fructose - Fructose","Sucrose - Sucrose"),c("AIN-93G - AIN-93G","AIN-93G - Fructose","AIN-93G - Sucrose"),c("AIN-93G - AIN-93G","Fructose - AIN-93G","Sucrose - AIN-93G"))
+
+
+boxplot_dietgroup <- function(df,dietgroups,title){
+  p <- df%>%
+    filter(Diet%in%dietgroups)%>%
+    filter(!is.na(PFat))%>%
+    ggplot(aes(x=Diet,y=`PFat`,fill=Diet,col=Diet))+
+    geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+    geom_point(position=position_jitter(0.1))+
+    theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14),strip.text = element_text(size = rel(1.5)),
+      strip.background = element_rect(color="white", fill="white"))+
+    scale_color_manual(values=DietPalette)+
+    scale_fill_manual(values=alpha(DietPalette,0.3))+
+    ylab("Fat Percentage (%)")+
+    ggtitle(title)+
+    facet_wrap(~Sex)+
+    #ggtitle(dietcomparetitle)+
+    scale_x_discrete(labels = function(x) 
+     stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))
+      #ylim()+
+  return(p)
+}
+
+plotlist <- list()
+pdf("Week6PFat.pdf")
+for(i in seq_along(dietcomparelist)){
+  groups <- dietcomparelist[[i]]
+  title <- dietcomparetitle[[i]]
+  p <- boxplot_dietgroup(slfpupfatpercentage,groups,title)
+  plot(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+```
+
+
