@@ -1,0 +1,81 @@
+---
+title: "ForKoay"
+author: "Michael"
+date: "2024-07-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(readr)
+library(stringr)
+library(dplyr)
+library(purrr)
+library(ggplot2)
+library(ggpubr)
+```
+
+# For Presentation (Week 6 Complete)
+
+## Header Function
+```{r slf header,echo=FALSE}
+dietcomparelist <- list(c("AIN-93G - AIN-93G","Fructose - AIN-93G","AIN-93G - Fructose","Fructose - Fructose"),c("AIN-93G - AIN-93G","Sucrose - AIN-93G","AIN-93G - Sucrose","Sucrose - Sucrose"),c("AIN-93G - AIN93G","Fructose - Fructose","Sucrose - Sucrose"),c("AIN-93G - AIN93G","AIN-93G - Fructose","AIN-93G - Sucrose"),c("AIN-93G - AIN93G","Fructose - AIN-93G","Sucrose - AIN-93G"))
+DietPalette <- c("#ADA9A4", "#F4A582","#CA6A6E", "#67001F", "#DA70D6","#A6CEE3","#1F78B4")
+names(DietPalette) <- c("AIN-93G - AIN-93G", "AIN-93G - Sucrose", "Sucrose - AIN-93G", "Sucrose - Sucrose", "AIN-93G - Fructose", "Fructose - AIN-93G", "Fructose - Fructose")
+dietcomparetitle <- c("AIN-93G v Fructose", "AIN-93G v Sucrose", "Lifelong Diet", "Postnatal Diet", "Prenatal Diet")
+```
+
+## Week 6 Weights (SLF Dataset)
+```{r week 6 weights, echo=FALSE}
+slfpupweights <- read.xlsx("/Users/michaelrahman/Library/CloudStorage/OneDrive-TheUniversityofSydney(Staff)/Student/Research/Mouse data/Raw dam and pup data/pupdata2024_ALL.xlsx",sheet="Weights",check.names=FALSE)%>%
+  filter(!is.na(Diet))
+give.n <- function(x){
+  return(c(y = mean(fivenum(x)[3:4]), label = length(x)))
+}
+#final weight pdf (07/07/24)
+boxplot_dietgroup <- function(df,dietgroups,title){
+  nobs <- df%>%
+    filter(Diet%in%dietgroups)%>%
+    filter(!is.na(Diet))%>%
+    group_by(Diet,Sex)%>%
+    summarise(n=n(),max_y = max(`6`,na.rm = TRUE))
+  p <- df%>%
+    filter(Diet%in%dietgroups)%>%
+    filter(!is.na(Diet))%>%
+    ggplot(aes(x=Diet,y=`6`,fill=Diet,col=Diet))+
+    geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+    geom_text(data=nobs,aes(x=Diet,y=max_y+0.5,label=n),vjust=-0.5,color="black")+
+    ggtitle(title)+
+    geom_point(position=position_jitter(0.1))+
+    theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14),strip.text = element_text(size = rel(1.5)),
+      strip.background = element_rect(color="white", fill="white"))+
+    scale_color_manual(values=DietPalette)+
+    scale_fill_manual(values=alpha(DietPalette,0.3))+
+    #ggtitle("Week 6 Weight")+
+    ylab("Weight (g)")+
+    stat_compare_means(comparisons=comparisons,tip.length = 0.1, hide.ns=TRUE, method="wilcox.test",paired=FALSE)+
+    #stat_summary(fun.data=give.n,geom="text",fun.y=median,position=position_dodge(width=0.5))+
+    facet_wrap(~Sex)+
+    scale_x_discrete(labels = function(x) 
+     stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))
+    #ylim(75,95)+
+    return(p)
+}
+
+pval_comparisons <- function(dietset) {
+  combn(dietset, 2, simplify = FALSE)
+}
+
+#export pdf with title
+plotlist <- list()
+pdf("Week6Weight.pdf")
+for(i in seq_along(dietcomparelist)){
+  comparisons <- pval_comparisons(dietcomparelist[[i]])
+  groups <- dietcomparelist[[i]]
+  title <- dietcomparetitle[[i]]
+  p <- boxplot_dietgroup(slfpupweights,groups,title)
+  plot(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+dev.off()
+```
