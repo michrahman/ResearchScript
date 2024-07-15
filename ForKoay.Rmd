@@ -79,3 +79,59 @@ for(i in seq_along(dietcomparelist)){
 }
 dev.off()
 ```
+
+## Updated Functions (Week 6 Weights, SLF Dataset)
+```{r updated functions, echo=FALSE}
+DietPalette <- c("#ADA9A4", "#F4A582","#CA6A6E", "#67001F", "#DA70D6","#A6CEE3","#1F78B4")
+names(DietPalette) <- c("AIN-93G - AIN-93G", "AIN-93G - Sucrose", "Sucrose - AIN-93G", "Sucrose - Sucrose", "AIN-93G - Fructose", "Fructose - AIN-93G", "Fructose - Fructose")
+dietcomparetitle <- c("AIN-93G v Fructose", "AIN-93G v Sucrose", "Lifelong Diet", "Postnatal Diet", "Prenatal Diet")
+dietcomparelist <- list(c("AIN-93G - AIN-93G","Fructose - AIN-93G","AIN-93G - Fructose","Fructose - Fructose"),c("AIN-93G - AIN-93G","Sucrose - AIN-93G","AIN-93G - Sucrose","Sucrose - Sucrose"),c("AIN-93G - AIN-93G","Fructose - Fructose","Sucrose - Sucrose"),c("AIN-93G - AIN-93G","AIN-93G - Fructose","AIN-93G - Sucrose"),c("AIN-93G - AIN-93G","Fructose - AIN-93G","Sucrose - AIN-93G"))
+  
+
+pval_comparisons <- function(dietset) {
+  combn(dietset, 2, simplify = FALSE)
+}
+give.n <- function(x){
+  return(c(y = mean(fivenum(x)[3:4]), label = length(x)))
+}
+
+boxplotdiet <- function(vari,df,dietgroups,title){
+    nobs <- df%>%
+    filter(Diet%in%dietgroups)%>%
+    filter(!is.na(Diet))%>%
+    group_by(Diet,Sex)%>%
+    summarise(n=n(),max_y = max(`vari`,na.rm = TRUE))
+  p <- df%>%
+    filter(Diet%in%dietgroups)%>%
+    filter(!is.na(Diet))%>%
+    ggplot(aes(x=Diet,y=`vari`,fill=Diet,col=Diet))+
+    geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+    ggtitle(title)+
+    geom_point(position=position_jitter(0.1))+
+    theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14),strip.text = element_text(size = rel(1.5)),
+      strip.background = element_rect(color="white", fill="white"))+
+    scale_color_manual(values=DietPalette)+
+    scale_fill_manual(values=alpha(DietPalette,0.3))+
+    #ggtitle("Week 6 Weight")+
+    ylab("Weight (g)")+
+    stat_compare_means(comparisons=comparisons,tip.length = 0.1, hide.ns=TRUE, method="wilcox.test",paired=FALSE)+
+    #stat_summary(fun.data=give.n,geom="text",fun.y=median,position=position_dodge(width=0.5))+
+    facet_wrap(~Sex)+
+    scale_x_discrete(labels = function(x) 
+     stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))
+  minypos <- layer_scales(p)$y$get_limits()[1]
+  p <- p+geom_text(data=nobs,aes(x=Diet,y=minypos,label=n),vjust=-0.5,color="black")
+    #ylim(75,95)+
+    return(p)
+}
+
+plotlist <- list()
+for(i in seq_along(dietcomparelist)){
+  comparisons <- pval_comparisons(dietcomparelist[[i]])
+  groups <- dietcomparelist[[i]]
+  title <- dietcomparetitle[[i]]
+  p <- boxplot_dietgroup(slfpupweights,groups,title)
+  plot(p)
+  plotlist[[length(plotlist)+1]] <- p
+}
+```
