@@ -43,7 +43,7 @@ boxplot_dietgroup <- function(df,dietgroups,title){
     filter(Diet%in%dietgroups)%>%
     filter(!is.na(Diet))%>%
     ggplot(aes(x=Diet,y=`6`,fill=Diet,col=Diet))+
-    geom_boxplot(lwd = 0.75, outlier.shape = NA) +
+    geom_boxplot(lwd = 0.75, outlier.shape = NA,width=0.5) +
     geom_text(data=nobs,aes(x=Diet,y=max_y+0.5,label=n),vjust=-0.5,color="black")+
     ggtitle(title)+
     geom_point(position=position_jitter(0.1))+
@@ -53,7 +53,7 @@ boxplot_dietgroup <- function(df,dietgroups,title){
     scale_fill_manual(values=alpha(DietPalette,0.3))+
     #ggtitle("Week 6 Weight")+
     ylab("Weight (g)")+
-    stat_compare_means(comparisons=comparisons,tip.length = 0.1, hide.ns=TRUE, method="wilcox.test",paired=FALSE)+
+    stat_compare_means(comparisons=comparisons,tip.length = 0, hide.ns=TRUE, method="wilcox.test",paired=FALSE)+
     #stat_summary(fun.data=give.n,geom="text",fun.y=median,position=position_dodge(width=0.5))+
     facet_wrap(~Sex)+
     scale_x_discrete(labels = function(x) 
@@ -95,43 +95,44 @@ give.n <- function(x){
   return(c(y = mean(fivenum(x)[3:4]), label = length(x)))
 }
 
-boxplotdiet <- function(vari,df,dietgroups,title){
-    nobs <- df%>%
+#systolic final
+boxplot_dietgroup <- function(df,dietgroups,title){
+  nobs_group <- df%>%
     filter(Diet%in%dietgroups)%>%
     filter(!is.na(Diet))%>%
     group_by(Diet,Sex)%>%
-    summarise(n=n(),max_y = max(`vari`,na.rm = TRUE))
+    summarise(n=n(),max_y = max(avgsys,na.rm = TRUE))
   p <- df%>%
     filter(Diet%in%dietgroups)%>%
     filter(!is.na(Diet))%>%
-    ggplot(aes(x=Diet,y=`vari`,fill=Diet,col=Diet))+
-    geom_boxplot(lwd = 0.75, outlier.shape = NA) +
-    ggtitle(title)+
+    mutate(nobs=as.factor(nobs))%>%
+    ggplot(aes(x=Diet,y=avgsys,fill=Diet,col=Diet))+
+    geom_boxplot(lwd = 0.75, outlier.shape = NA,width=0.5) +
     geom_point(position=position_jitter(0.1))+
-    theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14),strip.text = element_text(size = rel(1.5)),
-      strip.background = element_rect(color="white", fill="white"))+
+    ggtitle(title)+
+    theme(axis.line = element_line( colour = "black"), panel.background = element_blank(), axis.text = element_text(size=9), axis.title =  element_text(size=14),strip.text = element_text(size = rel(1.5)), strip.background = element_rect(color="white", fill="white"))+
     scale_color_manual(values=DietPalette)+
     scale_fill_manual(values=alpha(DietPalette,0.3))+
-    #ggtitle("Week 6 Weight")+
-    ylab("Weight (g)")+
-    stat_compare_means(comparisons=comparisons,tip.length = 0.1, hide.ns=TRUE, method="wilcox.test",paired=FALSE)+
-    #stat_summary(fun.data=give.n,geom="text",fun.y=median,position=position_dodge(width=0.5))+
+    ylab("Average Systolic (mmHg)")+
     facet_wrap(~Sex)+
     scale_x_discrete(labels = function(x) 
-     stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))
+     stringr::str_wrap(x, width = 5 , whitespace_only = FALSE))+
+    stat_compare_means(comparisons=comparisons,tip.length = 0, hide.ns=TRUE, method="wilcox.test",paired=FALSE)
+      #ylim(75,95)+
   minypos <- layer_scales(p)$y$get_limits()[1]
-  p <- p+geom_text(data=nobs,aes(x=Diet,y=minypos,label=n),vjust=-0.5,color="black")
-    #ylim(75,95)+
-    return(p)
+  p <- p+geom_text(data=nobs_group,aes(x=Diet,y=minypos-3,label=paste0("n=",n)),vjust=-0.5,color="black")
+  return(p)
 }
 
 plotlist <- list()
+pdf("Week6Systolic.pdf")
 for(i in seq_along(dietcomparelist)){
   comparisons <- pval_comparisons(dietcomparelist[[i]])
   groups <- dietcomparelist[[i]]
   title <- dietcomparetitle[[i]]
-  p <- boxplot_dietgroup(slfpupweights,groups,title)
+  p <- boxplot_dietgroup(week6_penalty,groups,title)
   plot(p)
   plotlist[[length(plotlist)+1]] <- p
 }
+dev.off()
 ```
